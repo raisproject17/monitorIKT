@@ -8,7 +8,6 @@
     <script>
       tailwind.config = { darkMode: 'class' }
     </script>
-    <!-- Mengganti html2pdf dengan html2canvas untuk export gambar -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script type="importmap">
@@ -30,57 +29,48 @@
         import { Store, BarChart2, Users, Calendar, Info, Save, Search, Loader2, Moon, Sun, RefreshCw, Image as ImageIcon } from 'lucide-react';
 
         // 🔴 PASTE URL GOOGLE APPS SCRIPT ANDA DI SINI
-        const scriptUrl = "https://script.google.com/macros/s/AKfycbx8eJSHAgVUTaN8vZg5pWc_dIfYooGtRbfAIkBvSjKLdHswkutjrQ-yy5m3YZrhK-F6/exec";
+        const scriptUrl = "https://script.google.com/macros/s/AKfycbwjcPPGGNmEXG3dRbPi6_xPh0-SzqK1fBJ4ZQJ6d8OhFJa053_HCgzeO554Gi1KCCsv/exec";
 
         function App() {
           const [activeTab, setActiveTab] = useState('IKT');
           const [toastMsg, setToastMsg] = useState('');
           const toastTimeoutRef = useRef(null);
 
-          // --- STATE DARK MODE ---
           const [isDarkMode, setIsDarkMode] = useState(() => {
-            if (typeof window !== 'undefined') {
-              return localStorage.getItem('theme') === 'dark';
-            }
+            if (typeof window !== 'undefined') return localStorage.getItem('theme') === 'dark';
             return false;
           });
 
           // --- STATE DATABASE DARI GAS ---
-          const [dbToko, setDbToko] = useState([]);
-          const [dbTargets, setDbTargets] = useState([]); 
-          const [isLoadingToko, setIsLoadingToko] = useState(true);
+          const [dbData, setDbData] = useState([]); 
+          const [isLoadingData, setIsLoadingData] = useState(true);
+          const [isTokoBaru, setIsTokoBaru] = useState(false);
 
-          // --- STATE TOKO INPUT ---
+          // --- STATE INPUT FORM ---
           const [kodeToko, setKodeToko] = useState('');
           const [namaToko, setNamaToko] = useState('');
           const [ac, setAc] = useState('');
           const [am, setAm] = useState('');
-
-          // --- STATE UNTUK DATA BULAN & WAKTU ---
-          const [selectedDate, setSelectedDate] = useState(() => {
-            const today = new Date();
-            return today.toISOString().split('T')[0];
-          });
-          const [jhkBerjalan, setJhkBerjalan] = useState(0);
-          const [totalHari, setTotalHari] = useState(0);
-          const [sisaJhk, setSisaJhk] = useState(0);
-          const [timeFactor, setTimeFactor] = useState(0);
-
-          // --- STATE INPUT DATA ---
+          
           const [targetNett, setTargetNett] = useState('');
           const [actualNett, setActualNett] = useState('');
           const [targetGM, setTargetGM] = useState(''); 
           const [actualGM, setActualGM] = useState('');
           const [inputBeGM, setInputBeGM] = useState('');
 
-          // --- FUNGSI TAMPILKAN NOTIFIKASI TOAST (NON-BLOCKING) ---
+          // --- STATE WAKTU ---
+          const [selectedDate, setSelectedDate] = useState(() => new Date().toISOString().split('T')[0]);
+          const [jhkBerjalan, setJhkBerjalan] = useState(0);
+          const [totalHari, setTotalHari] = useState(0);
+          const [sisaJhk, setSisaJhk] = useState(0);
+          const [timeFactor, setTimeFactor] = useState(0);
+
           const showNotif = (msg) => {
             setToastMsg(msg);
             if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
             toastTimeoutRef.current = setTimeout(() => setToastMsg(''), 3000);
           };
 
-          // --- EFEK: TOGGLE DARK MODE ---
           useEffect(() => {
             if (isDarkMode) {
               document.documentElement.classList.add('dark');
@@ -91,92 +81,81 @@
             }
           }, [isDarkMode]);
 
-          // --- EFEK: FETCH DATABASE (TOKO & TARGET) DARI GAS ---
+          // --- 1. FETCH DATA DARI SHEET "IKT" ---
           useEffect(() => {
-            const fetchDatabase = async () => {
-              setIsLoadingToko(true);
+            const fetchData = async () => {
+              setIsLoadingData(true);
               try {
                 const response = await fetch(scriptUrl);
                 const result = await response.json();
                 
                 if (result.status === 'success') {
-                  setDbToko(result.data.toko || []);
-                  setDbTargets(result.data.targets || []);
+                  setDbData(result.data || []);
                 } else {
-                  showNotif('Gagal memuat DB: ' + result.message);
+                  showNotif('❌ Gagal memuat DB: ' + result.message);
                 }
               } catch (err) {
                 console.error(err);
-                showNotif('Koneksi Error: Gagal memuat DB (Cek URL GAS)');
+                showNotif('❌ Koneksi Error (Cek URL GAS)');
               } finally {
-                setIsLoadingToko(false);
+                setIsLoadingData(false);
               }
             };
             
             if (!scriptUrl || scriptUrl === 'URL_GAS_ANDA_DISINI') {
-               showNotif('PERHATIAN: URL GAS belum di-set di dalam script.');
-               setIsLoadingToko(false);
+               showNotif('⚠️ URL GAS belum di-set.');
+               setIsLoadingData(false);
             } else {
-               fetchDatabase();
+               fetchData();
             }
           }, []);
 
-          // --- EFEK: AUTO-FILL DATA TOKO & SINKRONISASI TARGET ---
+          // --- FUNGSI FORMATTING ---
+          const parseNumber = (val) => parseFloat(val.toString().replace(/\./g, '')) || 0;
+          const parsePercent = (val) => parseFloat(val.toString().replace(',', '.')) || 0;
+          const formatCurrency = (num) => new Intl.NumberFormat('id-ID', { maximumFractionDigits: 0 }).format(num);
+          const formatPercentStr = (num) => Number(num).toLocaleString('id-ID', { minimumFractionDigits: 0, maximumFractionDigits: 2 }) + "%";
+
+          const handleCurrencyInput = (setter) => (e) => {
+            const rawValue = e.target.value.replace(/\D/g, '');
+            setter(formatCurrency(rawValue));
+          };
+
+          // --- 2. AUTO-FILL DATA JIKA KODE TOKO DIKETIK ---
           useEffect(() => {
             if (!kodeToko) {
               setNamaToko(''); setAc(''); setAm('');
               setTargetNett(''); setTargetGM('');
+              setIsTokoBaru(false);
               return;
             }
 
-            // 1. Cari Data Toko
-            const foundToko = dbToko.find(t => t.kode === kodeToko.toUpperCase());
-            if (foundToko) {
-              setNamaToko(foundToko.nama);
-              setAc(foundToko.ac);
-              setAm(foundToko.am);
-
-              // 2. SINKRONISASI TARGET SESUAI BULAN & TAHUN DARI SHEET "IKT"
-              if (selectedDate) {
-                const dObj = new Date(selectedDate);
-                const currentMonth = dObj.getMonth() + 1;
-                const currentYear = dObj.getFullYear();
-
-                const existingTarget = dbTargets.find(t => 
-                  t.KODE_TOKO === kodeToko.toUpperCase() && 
-                  t.BULAN === currentMonth && 
-                  t.TAHUN === currentYear
-                );
-
-                if (existingTarget) {
-                  // Jika data ada di database, set state otomatis
-                  setTargetNett(formatCurrency(existingTarget.NETT_SALES));
-                  setTargetGM(existingTarget.GM_PCT.toString().replace('.', ','));
-                  showNotif(`🔄 Data Target bulan ${currentMonth}/${currentYear} dimuat.`);
-                } else {
-                  // Jika tidak ada, kosongkan agar user bisa input baru
-                  setTargetNett('');
-                  setTargetGM('');
-                }
-              }
-
+            const found = dbData.find(t => t.kode === kodeToko.toUpperCase());
+            if (found) {
+              // Jika data ditemukan, isi form & target otomatis!
+              setNamaToko(found.nama);
+              setAc(found.ac);
+              setAm(found.am);
+              
+              setTargetNett(found.targetNett ? formatCurrency(found.targetNett) : '');
+              setTargetGM(found.targetGM ? found.targetGM.toString().replace('.', ',') : '');
+              
+              setIsTokoBaru(false);
+              showNotif(`🔄 Data & Target Toko dimuat.`);
             } else {
-              setNamaToko('Tidak ditemukan');
-              setAc('-'); setAm('-');
+              // Jika tidak ditemukan, kosongkan agar bisa diinput sebagai Toko Baru
+              setNamaToko(''); setAc(''); setAm('');
               setTargetNett(''); setTargetGM('');
+              setIsTokoBaru(true);
             }
-          }, [kodeToko, dbToko, dbTargets, selectedDate]);
+          }, [kodeToko, dbData]);
 
-          // --- EFEK: MENGHITUNG WAKTU (JHK, Time Factor) ---
+          // --- EFEK WAKTU ---
           useEffect(() => {
             if (!selectedDate) return;
             const dateObj = new Date(selectedDate);
-            const year = dateObj.getFullYear();
-            const month = dateObj.getMonth();
-            const day = dateObj.getDate();
-
-            const daysInMonth = new Date(year, month + 1, 0).getDate();
-            const berjalan = day; 
+            const daysInMonth = new Date(dateObj.getFullYear(), dateObj.getMonth() + 1, 0).getDate();
+            const berjalan = dateObj.getDate(); 
 
             setTotalHari(daysInMonth);
             setJhkBerjalan(berjalan);
@@ -184,24 +163,7 @@
             setTimeFactor(daysInMonth > 0 ? (berjalan / daysInMonth) * 100 : 0);
           }, [selectedDate]);
 
-          // --- FUNGSI FORMATTING & PARSING ---
-          const parseNumber = (val) => parseFloat(val.toString().replace(/\./g, '')) || 0;
-          const parsePercent = (val) => parseFloat(val.toString().replace(',', '.')) || 0;
-          
-          const formatCurrency = (num) => {
-            return new Intl.NumberFormat('id-ID', { maximumFractionDigits: 0 }).format(num);
-          };
-          
-          const formatPercentStr = (num) => {
-            return Number(num).toLocaleString('id-ID', { minimumFractionDigits: 0, maximumFractionDigits: 2 }) + "%";
-          };
-
-          const handleCurrencyInput = (setter) => (e) => {
-            const rawValue = e.target.value.replace(/\D/g, '');
-            setter(formatCurrency(rawValue));
-          };
-
-          // --- KALKULASI PENCAPAIAN ---
+          // --- KALKULASI PENCAPAIAN & BE ---
           const tNett = parseNumber(targetNett);
           const aNett = parseNumber(actualNett);
           const tGMpct = parsePercent(targetGM);
@@ -212,91 +174,60 @@
 
           const acvNett = tNett ? (aNett / tNett) * 100 : 0;
           const gapNett = aNett - tNett;
-
           const acvGMpct = tGMpct ? (aGMpct / tGMpct) * 100 : 0;
           const gapGMpct = aGMpct - tGMpct;
-
           const acvGMRp = tGMRp ? (aGMRp / tGMRp) * 100 : 0;
           const gapGMRp = aGMRp - tGMRp;
 
-          // --- KALKULASI BEST ESTIMATE ---
           let beGMRp = tGMRp - aGMRp;
           let beNett = tNett - aNett;
-
-          // GM% Best Estimate default otomatis terisi = Aktual GM%
           const defaultBeGM = aGMpct;
           const activeBeGM = inputBeGM !== '' ? parsePercent(inputBeGM) : defaultBeGM;
 
-          if (inputBeGM !== '') {
-            beNett = activeBeGM > 0 ? beGMRp / (activeBeGM / 100) : 0;
-          }
+          if (inputBeGM !== '') beNett = activeBeGM > 0 ? beGMRp / (activeBeGM / 100) : 0;
 
           const harianNett = sisaJhk > 0 ? beNett / sisaJhk : 0;
           const harianGMRp = sisaJhk > 0 ? beGMRp / sisaJhk : 0;
           const harianGMpct = activeBeGM;
 
-          const handleMenuClick = (menu) => {
-            if (menu === 'IKT') setActiveTab('IKT');
-            else showNotif("Menu " + menu + " dalam proses pengembangan");
-          };
-
-          // --- 2. FUNGSI EXPORT GAMBAR (FULL SCREEN) ---
+          // --- EXPORT IMAGE ---
           const handleExportImage = async () => {
             const element = document.getElementById('export-content');
             if (!element) return;
-            
-            showNotif('📸 Sedang menangkap gambar...');
-            
+            showNotif('📸 Menyiapkan gambar...');
             try {
-              // Menyembunyikan cursor input sebelum dirender
-              const inputs = element.querySelectorAll('input');
-              inputs.forEach(i => i.blur());
-
+              element.querySelectorAll('input').forEach(i => i.blur());
               const canvas = await window.html2canvas(element, {
-                scale: 2, // Resolusi tinggi
-                useCORS: true, // Handle gambar eksternal (jika ada)
-                backgroundColor: isDarkMode ? '#0f172a' : '#f8fafc', // Sesuaikan warna bg body
-                windowWidth: 1024 // Lebar standar agar tampilan konsisten seperti di desktop/tablet
+                scale: 2, useCORS: true, 
+                backgroundColor: isDarkMode ? '#0f172a' : '#f8fafc', 
+                windowWidth: 1024 
               });
-
-              // Ubah canvas menjadi data base64 (format PNG)
-              const imgData = canvas.toDataURL('image/png');
-              
-              // Buat elemen link anchor palsu untuk men-trigger download
               const link = document.createElement('a');
-              link.download = `Monitor_IKT_${kodeToko || 'Blank'}_${selectedDate}.png`;
-              link.href = imgData;
+              link.download = `IKT_${kodeToko || 'Blank'}_${selectedDate}.png`;
+              link.href = canvas.toDataURL('image/png');
               link.click();
-
               showNotif('✅ Gambar berhasil diunduh!');
             } catch (err) {
                 showNotif('❌ Gagal export Gambar');
-                console.error(err);
             }
           };
 
-          // --- SIMULASI BACKEND (GAS) ---
+          // --- SAVE KE GAS ---
           const handleSaveToGAS = async () => {
-            if (!kodeToko || namaToko === 'Tidak ditemukan' || isLoadingToko) {
-              showNotif('Mohon isi Kode Toko yang valid dari DB sebelum menyimpan!');
+            if (!kodeToko || !namaToko) {
+              showNotif('⚠️ Kode dan Nama Toko harus diisi!');
               return;
             }
 
-            showNotif('⏳ Menyimpan data...');
-            const dObj = new Date(selectedDate);
-            const currentMonth = dObj.getMonth() + 1;
-            const currentYear = dObj.getFullYear();
-
+            showNotif('⏳ Menyimpan ke Database...');
             const payload = {
-              sheetName: 'IKT',
               data: {
-                KODE_TOKO: kodeToko.toUpperCase(),
-                NAMA_TOKO: namaToko,
-                NETT_SALES: tNett,
-                GM_PCT: tGMpct,
-                GM_RP: tGMRp,
-                BULAN: currentMonth,
-                TAHUN: currentYear
+                kode: kodeToko.toUpperCase(),
+                nama: namaToko,
+                ac: ac,
+                am: am,
+                targetNett: tNett,
+                targetGM: tGMpct
               }
             };
             
@@ -310,245 +241,232 @@
               const result = await response.json();
 
               if (result.status === 'success') {
-                showNotif("✅ Target Berhasil Disimpan!");
+                showNotif("✅ " + result.message);
                 
-                // Update State lokal agar langsung sinkron tanpa perlu refresh
-                setDbTargets(prev => {
-                  const updatedTargets = [...prev];
-                  const idx = updatedTargets.findIndex(t => t.KODE_TOKO === payload.data.KODE_TOKO && t.BULAN === payload.data.BULAN && t.TAHUN === payload.data.TAHUN);
-                  if (idx >= 0) updatedTargets[idx] = payload.data;
-                  else updatedTargets.push(payload.data);
-                  return updatedTargets;
+                // Update state lokal agar langsung sinkron tanpa refresh
+                setDbData(prev => {
+                  const updated = [...prev];
+                  const idx = updated.findIndex(t => t.kode === payload.data.kode);
+                  if (idx >= 0) updated[idx] = payload.data;
+                  else updated.push(payload.data);
+                  return updated;
                 });
+                setIsTokoBaru(false);
               } else {
                 showNotif("❌ Gagal: " + result.message);
               }
             } catch (error) {
-              console.error(error);
-              showNotif('❌ Koneksi Error: Gagal menyimpan data');
+              showNotif('❌ Koneksi Error saat menyimpan');
             }
           };
 
           return (
             <div className="min-h-screen text-slate-800 dark:text-slate-200 pb-20 font-sans transition-colors duration-300">
               
-              {/* Notifikasi Mengambang (Toast Non-Blocking) */}
+              {/* Toast Notification */}
               {toastMsg && (
                 <div className="fixed top-6 left-0 right-0 z-[100] flex justify-center pointer-events-none transition-all duration-300 animate-[slideDown_0.3s_ease-out]">
                   <div className="bg-slate-900/90 dark:bg-slate-100/90 backdrop-blur-md px-6 py-3 rounded-full shadow-xl flex items-center gap-3 border border-white/10">
-                    {toastMsg.includes('✅') && <Save size={18} className="text-green-400 dark:text-green-600" />}
-                    {toastMsg.includes('❌') && <Info size={18} className="text-red-400 dark:text-red-600" />}
-                    {toastMsg.includes('🔄') && <RefreshCw size={18} className="text-blue-400 dark:text-blue-600 animate-spin-slow" />}
-                    {!toastMsg.match(/[✅❌🔄]/) && <Info size={18} className="text-blue-400 dark:text-blue-600" />}
-                    <p className="text-sm font-semibold text-white dark:text-slate-900">{toastMsg.replace(/[✅❌🔄📸⏳] /g, '')}</p>
+                    <p className="text-sm font-semibold text-white dark:text-slate-900">{toastMsg}</p>
                   </div>
                 </div>
               )}
 
-              {/* Wrapper untuk area Export Gambar */}
-              <div id="export-content" className="pb-4 bg-slate-50 dark:bg-slate-900">
+              <div id="export-content" className="pb-4 bg-slate-50 dark:bg-slate-900 min-h-screen">
 
-              {/* Header */}
-              <div className="bg-white/60 dark:bg-slate-900/60 backdrop-blur-lg shadow-sm border-b border-white/20 dark:border-slate-800/50 px-4 py-4 flex justify-between items-center sticky top-0 z-40 transition-colors duration-300">
-                <div className="flex items-center gap-3">
-                  <button onClick={() => setIsDarkMode(!isDarkMode)} data-html2canvas-ignore="true" className="p-2 bg-slate-100/80 dark:bg-slate-800/80 backdrop-blur-md rounded-full text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition border border-white/40 dark:border-slate-700">
-                    {isDarkMode ? <Sun size={20} /> : <Moon size={20} />}
-                  </button>
-                  <div>
-                    <h1 className="text-xl font-bold text-blue-700 dark:text-blue-400 leading-none">MONITOR IKT 2026</h1>
-                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">powered by raistech.</p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2" data-html2canvas-ignore="true">
-                  <button onClick={handleExportImage} className="bg-emerald-600 dark:bg-emerald-500 text-white p-2 sm:px-3 sm:py-2 rounded-lg shadow-lg shadow-emerald-500/30 hover:bg-emerald-700 transition flex items-center gap-2 text-sm font-semibold">
-                    <ImageIcon size={16} /> <span className="hidden sm:inline">Export Gambar</span>
-                  </button>
-                  <button onClick={handleSaveToGAS} className="bg-blue-600 dark:bg-blue-500 text-white p-2 sm:px-3 sm:py-2 rounded-lg shadow-lg shadow-blue-500/30 hover:bg-blue-700 transition flex items-center gap-2 text-sm font-semibold">
-                    <Save size={16} /> <span className="hidden sm:inline">Save Target</span>
-                  </button>
-                </div>
-              </div>
-
-              <div className="p-4 max-w-4xl mx-auto space-y-4 sm:space-y-6">
-                
-                {/* Section: INFORMASI TOKO */}
-                <div className="bg-white dark:bg-slate-800 p-4 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 relative transition-colors duration-300">
-                  {isLoadingToko && (
-                    <div className="absolute inset-0 bg-white/70 dark:bg-slate-800/80 z-10 flex flex-col items-center justify-center rounded-xl backdrop-blur-sm" data-html2canvas-ignore="true">
-                       <Loader2 className="animate-spin text-blue-500 mb-2" size={32} />
-                       <span className="text-sm font-semibold text-slate-600 dark:text-slate-300">Sync Database...</span>
+                {/* Header */}
+                <div className="bg-white/60 dark:bg-slate-900/60 backdrop-blur-lg shadow-sm border-b border-white/20 dark:border-slate-800/50 px-4 py-4 flex justify-between items-center sticky top-0 z-40">
+                  <div className="flex items-center gap-3">
+                    <button onClick={() => setIsDarkMode(!isDarkMode)} data-html2canvas-ignore="true" className="p-2 bg-slate-100/80 dark:bg-slate-800/80 rounded-full text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                      {isDarkMode ? <Sun size={20} /> : <Moon size={20} />}
+                    </button>
+                    <div>
+                      <h1 className="text-xl font-bold text-blue-700 dark:text-blue-400 leading-none">MONITOR IKT 2026</h1>
+                      <p className="text-xs text-slate-500 mt-0.5">powered by raistech.</p>
                     </div>
-                  )}
-                  <div className="flex items-center gap-2 mb-4 border-b dark:border-slate-700 pb-2">
-                    <Store size={18} className="text-blue-600 dark:text-blue-400" />
-                    <h2 className="font-semibold text-slate-800 dark:text-slate-100">INFORMASI TOKO</h2>
                   </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="space-y-1">
-                      <label className="text-xs font-semibold text-slate-500 dark:text-slate-400">KODE TOKO</label>
-                      <div className="relative">
-                        <input type="text" value={kodeToko} onChange={(e) => setKodeToko(e.target.value)} placeholder="Ketik Kode Toko..." className="w-full bg-transparent border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 pl-9 focus:ring-blue-500 focus:border-blue-500 outline-none uppercase dark:text-white" disabled={isLoadingToko} />
-                        <Search size={16} className="absolute left-3 top-2.5 text-slate-400" />
+                  <div className="flex gap-2" data-html2canvas-ignore="true">
+                    <button onClick={handleExportImage} className="bg-emerald-600 text-white p-2 rounded-lg shadow flex items-center gap-2 text-sm font-semibold"><ImageIcon size={16} /> <span className="hidden sm:inline">Export</span></button>
+                    <button onClick={handleSaveToGAS} className="bg-blue-600 text-white p-2 rounded-lg shadow flex items-center gap-2 text-sm font-semibold"><Save size={16} /> <span className="hidden sm:inline">Save DB</span></button>
+                  </div>
+                </div>
+
+                <div className="p-4 max-w-4xl mx-auto space-y-4 sm:space-y-6">
+                  
+                  {/* INFORMASI TOKO */}
+                  <div className="bg-white dark:bg-slate-800 p-4 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 relative">
+                    {isLoadingData && (
+                      <div className="absolute inset-0 bg-white/70 dark:bg-slate-800/80 z-10 flex flex-col items-center justify-center rounded-xl" data-html2canvas-ignore="true">
+                         <Loader2 className="animate-spin text-blue-500 mb-2" size={32} />
+                         <span className="text-sm font-semibold">Memuat Database...</span>
                       </div>
-                      <p className={"text-[10px] " + (dbToko.length > 0 ? "text-green-600 dark:text-green-400 font-medium" : "text-slate-400")}>
-                        {dbToko.length > 0 ? "✅ DB Terkoneksi" : "Menunggu DB..."}
-                      </p>
+                    )}
+                    <div className="flex items-center gap-2 mb-4 border-b dark:border-slate-700 pb-2">
+                      <Store size={18} className="text-blue-600 dark:text-blue-400" />
+                      <h2 className="font-semibold">INFORMASI TOKO</h2>
                     </div>
-                    <div className="space-y-1">
-                      <label className="text-xs font-semibold text-slate-500 dark:text-slate-400">NAMA TOKO</label>
-                      <input type="text" value={namaToko} readOnly className="w-full bg-slate-100 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-2 text-slate-600 dark:text-slate-300 font-medium outline-none cursor-not-allowed" />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-xs font-semibold text-slate-500 dark:text-slate-400">AREA COORDINATOR (AC)</label>
-                      <input type="text" value={ac} readOnly className="w-full bg-slate-100 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-2 text-slate-600 dark:text-slate-300 outline-none cursor-not-allowed" />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-xs font-semibold text-slate-500 dark:text-slate-400">AREA MANAGER (AM)</label>
-                      <input type="text" value={am} readOnly className="w-full bg-slate-100 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-2 text-slate-600 dark:text-slate-300 outline-none cursor-not-allowed" />
-                    </div>
-                  </div>
-                </div>
-
-                {/* Section: Waktu & Kalender */}
-                <div className="bg-white dark:bg-slate-800 p-4 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 transition-colors duration-300">
-                  <div className="flex flex-col sm:flex-row gap-4 items-center justify-between">
-                    <div className="flex items-center gap-3 w-full sm:w-auto">
-                      <Calendar className="text-blue-500 dark:text-blue-400" />
-                      <input type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} className="block w-full sm:w-48 bg-slate-50 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 focus:ring-blue-500 outline-none dark:text-white dark:[color-scheme:dark]" />
-                    </div>
-                    <div className="flex gap-4 w-full sm:w-auto text-sm">
-                      <div className="bg-blue-50 dark:bg-blue-900/30 px-4 py-2 rounded-lg border border-blue-100 dark:border-blue-800/50 flex-1 text-center">
-                        <p className="text-slate-500 dark:text-slate-400 text-xs font-semibold">JHK BERJALAN</p>
-                        <p className="font-bold text-blue-700 dark:text-blue-400">{jhkBerjalan} <span className="text-xs font-normal">Hari</span></p>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label className="text-xs font-semibold text-slate-500">KODE TOKO</label>
+                        <div className="relative mt-1">
+                          <input type="text" value={kodeToko} onChange={(e) => setKodeToko(e.target.value)} placeholder="Ketik Kode..." className="w-full bg-transparent border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 pl-9 focus:ring-blue-500 outline-none uppercase dark:text-white" />
+                          <Search size={16} className="absolute left-3 top-2.5 text-slate-400" />
+                        </div>
+                        <p className={"text-[10px] mt-1 " + (isTokoBaru && kodeToko ? "text-orange-500" : "text-green-500")}>
+                          {kodeToko && isTokoBaru ? "⚠️ Toko Belum Ada di DB (Input Baru)" : (kodeToko ? "✅ Data Ditemukan di DB" : "")}
+                        </p>
                       </div>
-                      <div className="bg-orange-50 dark:bg-orange-900/30 px-4 py-2 rounded-lg border border-orange-100 dark:border-orange-800/50 flex-1 text-center">
-                        <p className="text-slate-500 dark:text-slate-400 text-xs font-semibold">TIME FACTOR</p>
-                        <p className="font-bold text-orange-700 dark:text-orange-400">{formatPercentStr(timeFactor)}</p>
+                      <div>
+                        <label className="text-xs font-semibold text-slate-500">NAMA TOKO</label>
+                        <input type="text" value={namaToko} onChange={(e) => setNamaToko(e.target.value)} placeholder="Nama Toko" className={"mt-1 w-full border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 outline-none dark:text-white " + (!isTokoBaru && kodeToko ? "bg-slate-100 dark:bg-slate-700" : "bg-white dark:bg-slate-800")} readOnly={!isTokoBaru && kodeToko} />
+                      </div>
+                      <div>
+                        <label className="text-xs font-semibold text-slate-500">AREA COORDINATOR (AC)</label>
+                        <input type="text" value={ac} onChange={(e) => setAc(e.target.value)} placeholder="Nama AC" className={"mt-1 w-full border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 outline-none dark:text-white " + (!isTokoBaru && kodeToko ? "bg-slate-100 dark:bg-slate-700" : "bg-white dark:bg-slate-800")} readOnly={!isTokoBaru && kodeToko} />
+                      </div>
+                      <div>
+                        <label className="text-xs font-semibold text-slate-500">AREA MANAGER (AM)</label>
+                        <input type="text" value={am} onChange={(e) => setAm(e.target.value)} placeholder="Nama AM" className={"mt-1 w-full border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 outline-none dark:text-white " + (!isTokoBaru && kodeToko ? "bg-slate-100 dark:bg-slate-700" : "bg-white dark:bg-slate-800")} readOnly={!isTokoBaru && kodeToko} />
                       </div>
                     </div>
                   </div>
-                </div>
 
-                {/* Section: PENCAPAIAN */}
-                <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden transition-colors duration-300">
-                  <div className="bg-slate-800 dark:bg-slate-900 text-white px-4 py-3 flex justify-between items-center border-b dark:border-slate-700">
-                    <h2 className="font-semibold">PENCAPAIAN</h2>
-                    <span className="flex items-center gap-1 text-[10px] bg-blue-600 dark:bg-blue-700 px-2 py-1 rounded" data-html2canvas-ignore="true"><RefreshCw size={10} /> Auto-Sync Data</span>
+                  {/* WAKTU */}
+                  <div className="bg-white dark:bg-slate-800 p-4 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700">
+                    <div className="flex flex-col sm:flex-row gap-4 justify-between items-center">
+                      <div className="flex items-center gap-3 w-full sm:w-auto">
+                        <Calendar className="text-blue-500" />
+                        <input type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} className="w-full sm:w-48 bg-slate-50 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 outline-none dark:text-white dark:[color-scheme:dark]" />
+                      </div>
+                      <div className="flex gap-4 w-full sm:w-auto text-sm">
+                        <div className="bg-blue-50 dark:bg-blue-900/30 px-4 py-2 rounded-lg flex-1 text-center border border-blue-100 dark:border-blue-800">
+                          <p className="text-slate-500 text-xs font-semibold">JHK BERJALAN</p>
+                          <p className="font-bold text-blue-700 dark:text-blue-400">{jhkBerjalan} Hari</p>
+                        </div>
+                        <div className="bg-orange-50 dark:bg-orange-900/30 px-4 py-2 rounded-lg flex-1 text-center border border-orange-100 dark:border-orange-800">
+                          <p className="text-slate-500 text-xs font-semibold">TIME FACTOR</p>
+                          <p className="font-bold text-orange-700 dark:text-orange-400">{formatPercentStr(timeFactor)}</p>
+                        </div>
+                      </div>
+                    </div>
                   </div>
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm text-left">
-                      <thead className="text-xs text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800/50 uppercase border-b dark:border-slate-700">
-                        <tr>
-                          <th className="px-4 py-3">Indikator</th>
-                          <th className="px-4 py-3 border-x border-slate-200 dark:border-slate-700 bg-blue-50/50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300">Target</th>
-                          <th className="px-4 py-3">Aktual</th>
-                          <th className="px-4 py-3 text-center">ACV %</th>
-                          <th className="px-4 py-3 text-right">GAP</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
-                        <tr className="hover:bg-slate-50 dark:hover:bg-slate-700/50">
-                          <td className="px-4 py-3 font-medium text-slate-800 dark:text-slate-200">Nett Sales</td>
-                          <td className="px-4 py-2 border-x border-slate-200 dark:border-slate-700 bg-blue-50/30 dark:bg-blue-900/10">
-                            <input type="text" value={targetNett} onChange={handleCurrencyInput(setTargetNett)} placeholder="0" className="w-28 sm:w-32 bg-white dark:bg-slate-700 border border-blue-300 dark:border-blue-600 rounded px-2 py-1 text-right focus:ring-blue-500 outline-none shadow-inner dark:text-white" />
-                          </td>
-                          <td className="px-4 py-2">
-                            <input type="text" value={actualNett} onChange={handleCurrencyInput(setActualNett)} placeholder="0" className="w-28 sm:w-32 bg-transparent border border-slate-200 dark:border-slate-600 rounded px-2 py-1 text-right focus:ring-slate-400 outline-none dark:text-white" />
-                          </td>
-                          <td className={"px-4 py-3 text-center font-semibold " + (acvNett >= 100 ? 'text-green-600 dark:text-green-400' : 'text-red-500 dark:text-red-400')}>{formatPercentStr(acvNett)}</td>
-                          <td className={"px-4 py-3 text-right font-semibold " + (gapNett >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-500 dark:text-red-400')}>{formatCurrency(gapNett)}</td>
-                        </tr>
-                        <tr className="hover:bg-slate-50 dark:hover:bg-slate-700/50">
-                          <td className="px-4 py-3 font-medium text-slate-800 dark:text-slate-200">GM %</td>
-                          <td className="px-4 py-2 border-x border-slate-200 dark:border-slate-700 bg-blue-50/30 dark:bg-blue-900/10">
-                            <div className="relative">
-                              <input type="text" value={targetGM} onChange={(e) => setTargetGM(e.target.value)} placeholder="15,5" className="w-28 sm:w-32 bg-white dark:bg-slate-700 border border-blue-300 dark:border-blue-600 rounded px-2 py-1 text-right pr-6 focus:ring-blue-500 outline-none shadow-inner dark:text-white" />
-                              <span className="absolute right-2 top-1.5 text-slate-400">%</span>
-                            </div>
-                          </td>
-                          <td className="px-4 py-2">
-                            <div className="relative">
-                              <input type="text" value={actualGM} onChange={(e) => setActualGM(e.target.value)} placeholder="14,0" className="w-28 sm:w-32 bg-transparent border border-slate-200 dark:border-slate-600 rounded px-2 py-1 text-right pr-6 focus:ring-slate-400 outline-none dark:text-white" />
-                              <span className="absolute right-2 top-1.5 text-slate-400">%</span>
-                            </div>
-                          </td>
-                          <td className={"px-4 py-3 text-center font-semibold " + (acvGMpct >= 100 ? 'text-green-600 dark:text-green-400' : 'text-red-500 dark:text-red-400')}>{formatPercentStr(acvGMpct)}</td>
-                          <td className={"px-4 py-3 text-right font-semibold " + (gapGMpct >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-500 dark:text-red-400')}>{formatPercentStr(gapGMpct)}</td>
-                        </tr>
-                        <tr className="bg-slate-50/50 dark:bg-slate-800/50">
-                          <td className="px-4 py-3 font-medium text-slate-800 dark:text-slate-200">GM Rp</td>
-                          <td className="px-4 py-3 text-right text-blue-700 dark:text-blue-400 font-semibold border-x border-slate-200 dark:border-slate-700 bg-blue-50/30 dark:bg-blue-900/10">{formatCurrency(tGMRp)}</td>
-                          <td className="px-4 py-3 text-right text-slate-600 dark:text-slate-400">{formatCurrency(aGMRp)}</td>
-                          <td className={"px-4 py-3 text-center font-semibold " + (acvGMRp >= 100 ? 'text-green-600 dark:text-green-400' : 'text-red-500 dark:text-red-400')}>{formatPercentStr(acvGMRp)}</td>
-                          <td className={"px-4 py-3 text-right font-semibold " + (gapGMRp >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-500 dark:text-red-400')}>{formatCurrency(gapGMRp)}</td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
 
-                {/* Section: BEST ESTIMATE */}
-                <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden transition-colors duration-300">
-                  <div className="bg-blue-800 dark:bg-blue-900 text-white px-4 py-3 flex justify-between items-center">
-                    <h2 className="font-semibold">BEST ESTIMATE (Sisa Target)</h2>
-                    <span className="text-xs bg-blue-700 dark:bg-blue-800 px-2 py-1 rounded border border-blue-600 dark:border-blue-700 shadow-inner">Sisa JHK: {sisaJhk} Hari</span>
+                  {/* PENCAPAIAN */}
+                  <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden">
+                    <div className="bg-slate-800 dark:bg-slate-900 text-white px-4 py-3 flex justify-between">
+                      <h2 className="font-semibold">PENCAPAIAN</h2>
+                    </div>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm text-left">
+                        <thead className="text-xs text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800/50 uppercase border-b dark:border-slate-700">
+                          <tr>
+                            <th className="px-4 py-3">Indikator</th>
+                            <th className="px-4 py-3 bg-blue-50/50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 border-x dark:border-slate-700">Target (Auto DB)</th>
+                            <th className="px-4 py-3">Aktual (Manual)</th>
+                            <th className="px-4 py-3 text-center">ACV %</th>
+                            <th className="px-4 py-3 text-right">GAP</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
+                          <tr>
+                            <td className="px-4 py-3 font-medium">Nett Sales</td>
+                            <td className="px-4 py-2 border-x dark:border-slate-700 bg-blue-50/30 dark:bg-blue-900/10">
+                              <input type="text" value={targetNett} onChange={handleCurrencyInput(setTargetNett)} placeholder="0" className="w-28 sm:w-32 bg-white dark:bg-slate-700 border border-blue-300 dark:border-blue-600 rounded px-2 py-1 text-right outline-none dark:text-white" />
+                            </td>
+                            <td className="px-4 py-2">
+                              <input type="text" value={actualNett} onChange={handleCurrencyInput(setActualNett)} placeholder="0" className="w-28 sm:w-32 bg-transparent border border-slate-300 dark:border-slate-600 rounded px-2 py-1 text-right outline-none dark:text-white" />
+                            </td>
+                            <td className={"px-4 py-3 text-center font-semibold " + (acvNett >= 100 ? 'text-green-500' : 'text-red-500')}>{formatPercentStr(acvNett)}</td>
+                            <td className={"px-4 py-3 text-right font-semibold " + (gapNett >= 0 ? 'text-green-500' : 'text-red-500')}>{formatCurrency(gapNett)}</td>
+                          </tr>
+                          <tr>
+                            <td className="px-4 py-3 font-medium">GM %</td>
+                            <td className="px-4 py-2 border-x dark:border-slate-700 bg-blue-50/30 dark:bg-blue-900/10">
+                              <div className="relative">
+                                <input type="text" value={targetGM} onChange={(e) => setTargetGM(e.target.value)} placeholder="15,5" className="w-28 sm:w-32 bg-white dark:bg-slate-700 border border-blue-300 dark:border-blue-600 rounded px-2 py-1 text-right pr-6 outline-none dark:text-white" />
+                                <span className="absolute right-2 top-1.5 text-slate-400">%</span>
+                              </div>
+                            </td>
+                            <td className="px-4 py-2">
+                              <div className="relative">
+                                <input type="text" value={actualGM} onChange={(e) => setActualGM(e.target.value)} placeholder="14,0" className="w-28 sm:w-32 bg-transparent border border-slate-300 dark:border-slate-600 rounded px-2 py-1 text-right pr-6 outline-none dark:text-white" />
+                                <span className="absolute right-2 top-1.5 text-slate-400">%</span>
+                              </div>
+                            </td>
+                            <td className={"px-4 py-3 text-center font-semibold " + (acvGMpct >= 100 ? 'text-green-500' : 'text-red-500')}>{formatPercentStr(acvGMpct)}</td>
+                            <td className={"px-4 py-3 text-right font-semibold " + (gapGMpct >= 0 ? 'text-green-500' : 'text-red-500')}>{formatPercentStr(gapGMpct)}</td>
+                          </tr>
+                          <tr className="bg-slate-50/50 dark:bg-slate-800/50">
+                            <td className="px-4 py-3 font-medium">GM Rp</td>
+                            <td className="px-4 py-3 text-right text-blue-700 dark:text-blue-400 font-semibold border-x dark:border-slate-700 bg-blue-50/30 dark:bg-blue-900/10">{formatCurrency(tGMRp)}</td>
+                            <td className="px-4 py-3 text-right">{formatCurrency(aGMRp)}</td>
+                            <td className={"px-4 py-3 text-center font-semibold " + (acvGMRp >= 100 ? 'text-green-500' : 'text-red-500')}>{formatPercentStr(acvGMRp)}</td>
+                            <td className={"px-4 py-3 text-right font-semibold " + (gapGMRp >= 0 ? 'text-green-500' : 'text-red-500')}>{formatCurrency(gapGMRp)}</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
                   </div>
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm text-left">
-                      <thead className="text-xs text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800/50 uppercase border-b dark:border-slate-700">
-                        <tr>
-                          <th className="px-4 py-3">Indikator</th>
-                          <th className="px-4 py-3 text-right">Target BE</th>
-                          <th className="px-4 py-3 text-center">Sisa JHK</th>
-                          <th className="px-4 py-3 text-right">Target Harian</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
-                        <tr className="hover:bg-slate-50 dark:hover:bg-slate-700/50">
-                          <td className="px-4 py-3 font-medium text-slate-800 dark:text-slate-200">Nett Sales</td>
-                          <td className="px-4 py-3 text-right text-blue-700 dark:text-blue-400 font-semibold">{formatCurrency(beNett)}</td>
-                          <td className="px-4 py-3 text-center text-slate-500 dark:text-slate-400">{sisaJhk}</td>
-                          <td className="px-4 py-3 text-right text-orange-600 dark:text-orange-400 font-bold">{formatCurrency(harianNett)}</td>
-                        </tr>
-                        <tr className="hover:bg-slate-50 dark:hover:bg-slate-700/50">
-                          <td className="px-4 py-3 font-medium text-slate-800 dark:text-slate-200">GM %</td>
-                          <td className="px-4 py-2 text-right">
-                            <div className="relative inline-block">
-                              <input type="text" value={inputBeGM} onChange={(e) => setInputBeGM(e.target.value)} placeholder={formatPercentStr(defaultBeGM).replace('%','')} className="w-24 sm:w-28 bg-blue-50 dark:bg-slate-700 border border-blue-200 dark:border-slate-600 rounded px-2 py-1 text-right pr-6 focus:ring-blue-500 outline-none dark:text-white" />
-                              <span className="absolute right-2 top-1.5 text-slate-400">%</span>
-                            </div>
-                          </td>
-                          <td className="px-4 py-3 text-center text-slate-500 dark:text-slate-400">{sisaJhk}</td>
-                          <td className="px-4 py-3 text-right text-orange-600 dark:text-orange-400 font-bold">{formatPercentStr(harianGMpct)}</td>
-                        </tr>
-                        <tr className="bg-slate-50/50 dark:bg-slate-800/50">
-                          <td className="px-4 py-3 font-medium text-slate-800 dark:text-slate-200">GM Rp</td>
-                          <td className="px-4 py-3 text-right text-blue-700 dark:text-blue-400 font-semibold">{formatCurrency(beGMRp)}</td>
-                          <td className="px-4 py-3 text-center text-slate-500 dark:text-slate-400">{sisaJhk}</td>
-                          <td className="px-4 py-3 text-right text-orange-600 dark:text-orange-400 font-bold">{formatCurrency(harianGMRp)}</td>
-                        </tr>
-                      </tbody>
-                    </table>
+
+                  {/* BEST ESTIMATE */}
+                  <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden">
+                    <div className="bg-blue-800 dark:bg-blue-900 text-white px-4 py-3 flex justify-between">
+                      <h2 className="font-semibold">BEST ESTIMATE</h2>
+                      <span className="text-xs bg-blue-700 px-2 py-1 rounded">Sisa JHK: {sisaJhk}</span>
+                    </div>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm text-left">
+                        <thead className="text-xs text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800/50 uppercase border-b dark:border-slate-700">
+                          <tr>
+                            <th className="px-4 py-3">Indikator</th>
+                            <th className="px-4 py-3 text-right">Target BE</th>
+                            <th className="px-4 py-3 text-center">Sisa JHK</th>
+                            <th className="px-4 py-3 text-right">Target Harian</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
+                          <tr>
+                            <td className="px-4 py-3 font-medium">Nett Sales</td>
+                            <td className="px-4 py-3 text-right text-blue-700 dark:text-blue-400 font-semibold">{formatCurrency(beNett)}</td>
+                            <td className="px-4 py-3 text-center text-slate-500">{sisaJhk}</td>
+                            <td className="px-4 py-3 text-right text-orange-600 dark:text-orange-400 font-bold">{formatCurrency(harianNett)}</td>
+                          </tr>
+                          <tr>
+                            <td className="px-4 py-3 font-medium">GM %</td>
+                            <td className="px-4 py-2 text-right">
+                              <div className="relative inline-block">
+                                <input type="text" value={inputBeGM} onChange={(e) => setInputBeGM(e.target.value)} placeholder={formatPercentStr(defaultBeGM).replace('%','')} className="w-24 sm:w-28 bg-blue-50 dark:bg-slate-700 border border-blue-200 dark:border-slate-600 rounded px-2 py-1 text-right pr-6 outline-none dark:text-white" />
+                                <span className="absolute right-2 top-1.5 text-slate-400">%</span>
+                              </div>
+                            </td>
+                            <td className="px-4 py-3 text-center text-slate-500">{sisaJhk}</td>
+                            <td className="px-4 py-3 text-right text-orange-600 dark:text-orange-400 font-bold">{formatPercentStr(harianGMpct)}</td>
+                          </tr>
+                          <tr className="bg-slate-50/50 dark:bg-slate-800/50">
+                            <td className="px-4 py-3 font-medium">GM Rp</td>
+                            <td className="px-4 py-3 text-right text-blue-700 dark:text-blue-400 font-semibold">{formatCurrency(beGMRp)}</td>
+                            <td className="px-4 py-3 text-center text-slate-500">{sisaJhk}</td>
+                            <td className="px-4 py-3 text-right text-orange-600 dark:text-orange-400 font-bold">{formatCurrency(harianGMRp)}</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
                   </div>
+
                 </div>
               </div>
-              
-              </div>
 
-              {/* Bottom Navigation Bar */}
-              <div className="fixed bottom-0 w-full bg-white/40 dark:bg-slate-900/40 backdrop-blur-xl border-t border-white/60 dark:border-slate-700/50 shadow-[0_-8px_30px_rgba(0,0,0,0.1)] z-50 transition-colors duration-300" data-html2canvas-ignore="true">
+              {/* Navigation Bar */}
+              <div className="fixed bottom-0 w-full bg-white/40 dark:bg-slate-900/40 backdrop-blur-xl border-t border-slate-200 dark:border-slate-700 z-50" data-html2canvas-ignore="true">
                 <div className="flex justify-around items-center h-16 max-w-md mx-auto px-4">
-                  <button onClick={() => handleMenuClick('PPSA')} className={"flex flex-col items-center justify-center w-full h-full gap-1 transition-colors " + (activeTab === 'PPSA' ? 'text-blue-600 dark:text-blue-400' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-300')}>
-                    <Store size={22} className={activeTab === 'PPSA' ? 'fill-blue-100 dark:fill-blue-900/50' : ''} />
-                    <span className="text-[10px] font-semibold">PPSA</span>
+                  <button onClick={() => setActiveTab('PPSA')} className={"flex flex-col items-center justify-center w-full h-full gap-1 " + (activeTab === 'PPSA' ? 'text-blue-600' : 'text-slate-500')}>
+                    <Store size={22} /><span className="text-[10px] font-semibold">PPSA</span>
                   </button>
-                  <button onClick={() => handleMenuClick('IKT')} className={"flex flex-col items-center justify-center w-full h-full gap-1 transition-colors " + (activeTab === 'IKT' ? 'text-blue-600 dark:text-blue-400' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-300')}>
-                    <BarChart2 size={24} className={activeTab === 'IKT' ? 'fill-blue-100 dark:fill-blue-900/50' : ''} />
-                    <span className="text-[10px] font-semibold">IKT</span>
+                  <button onClick={() => setActiveTab('IKT')} className={"flex flex-col items-center justify-center w-full h-full gap-1 " + (activeTab === 'IKT' ? 'text-blue-600' : 'text-slate-500')}>
+                    <BarChart2 size={24} /><span className="text-[10px] font-semibold">IKT</span>
                   </button>
-                  <button onClick={() => handleMenuClick('IKAC/IKAM')} className={"flex flex-col items-center justify-center w-full h-full gap-1 transition-colors " + (activeTab === 'IKAC/IKAM' ? 'text-blue-600 dark:text-blue-400' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-300')}>
-                    <Users size={22} className={activeTab === 'IKAC/IKAM' ? 'fill-blue-100 dark:fill-blue-900/50' : ''} />
-                    <span className="text-[10px] font-semibold">IKAC/IKAM</span>
+                  <button onClick={() => setActiveTab('IKAC/IKAM')} className={"flex flex-col items-center justify-center w-full h-full gap-1 " + (activeTab === 'IKAC/IKAM' ? 'text-blue-600' : 'text-slate-500')}>
+                    <Users size={22} /><span className="text-[10px] font-semibold">IKAC/IKAM</span>
                   </button>
                 </div>
               </div>
@@ -561,7 +479,6 @@
         root.render(<App />);
     </script>
     <style>
-      /* CSS Animasi Toast */
       @keyframes slideDown {
         from { transform: translateY(-100%); opacity: 0; }
         to { transform: translateY(0); opacity: 1; }
