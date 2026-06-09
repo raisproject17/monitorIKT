@@ -179,12 +179,23 @@
           const acvGMRp = tGMRp ? (aGMRp / tGMRp) * 100 : 0;
           const gapGMRp = aGMRp - tGMRp;
 
+          // --- KALKULASI BEST ESTIMATE ---
           let beGMRp = tGMRp - aGMRp;
-          let beNett = tNett - aNett;
+
+          // GM% Best Estimate default otomatis terisi = Aktual GM%
           const defaultBeGM = aGMpct;
           const activeBeGM = inputBeGM !== '' ? parsePercent(inputBeGM) : defaultBeGM;
 
-          if (inputBeGM !== '') beNett = activeBeGM > 0 ? beGMRp / (activeBeGM / 100) : 0;
+          let beNett = 0;
+
+          // LOGIKA BARU: Penentuan Sisa Target Nett (BE Sales)
+          if (aGMpct >= tGMpct && inputBeGM === '') {
+            // 1. Jika GM% TERCAPAI: BE Nett cukup mengejar Sisa Target Nett Sales aslinya
+            beNett = tNett - aNett;
+          } else {
+            // 2. Jika GM% TIDAK TERCAPAI (atau diinput manual): BE Nett harus digenjot untuk menutupi kekurangan target GM Rupiah
+            beNett = activeBeGM > 0 ? (beGMRp / (activeBeGM / 100)) : 0;
+          }
 
           const harianNett = sisaJhk > 0 ? beNett / sisaJhk : 0;
           const harianGMRp = sisaJhk > 0 ? beGMRp / sisaJhk : 0;
