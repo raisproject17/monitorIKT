@@ -1,0 +1,548 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Monitor IKT 2026</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = { darkMode: 'class' }
+    </script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script type="importmap">
+    {
+        "imports": {
+            "react": "https://esm.sh/react@18.2.0",
+            "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
+            "lucide-react": "https://esm.sh/lucide-react@0.292.0"
+        }
+    }
+    </script>
+</head>
+<body class="bg-slate-50 dark:bg-slate-900 transition-colors duration-300 selection:bg-blue-200 dark:selection:bg-blue-900">
+    <div id="root"></div>
+
+    <script type="text/babel" data-type="module">
+        import React, { useState, useEffect, useRef } from 'react';
+        import { createRoot } from 'react-dom/client';
+        import { Store, BarChart2, Users, Calendar, Info, Save, Search, Loader2, Moon, Sun, RefreshCw, FileDown } from 'lucide-react';
+
+        // 🔴 PASTE URL GOOGLE APPS SCRIPT ANDA DI SINI
+        const scriptUrl = "https://script.google.com/macros/s/AKfycbx8eJSHAgVUTaN8vZg5pWc_dIfYooGtRbfAIkBvSjKLdHswkutjrQ-yy5m3YZrhK-F6/exec";
+
+        function App() {
+          const [activeTab, setActiveTab] = useState('IKT');
+          const [toastMsg, setToastMsg] = useState('');
+          const toastTimeoutRef = useRef(null);
+
+          // --- STATE DARK MODE ---
+          const [isDarkMode, setIsDarkMode] = useState(() => {
+            if (typeof window !== 'undefined') {
+              return localStorage.getItem('theme') === 'dark';
+            }
+            return false;
+          });
+
+          // --- STATE DATABASE DARI GAS ---
+          const [dbToko, setDbToko] = useState([]);
+          const [dbTargets, setDbTargets] = useState([]); 
+          const [isLoadingToko, setIsLoadingToko] = useState(true);
+
+          // --- STATE TOKO INPUT ---
+          const [kodeToko, setKodeToko] = useState('');
+          const [namaToko, setNamaToko] = useState('');
+          const [ac, setAc] = useState('');
+          const [am, setAm] = useState('');
+
+          // --- STATE UNTUK DATA BULAN & WAKTU ---
+          const [selectedDate, setSelectedDate] = useState(() => {
+            const today = new Date();
+            return today.toISOString().split('T')[0];
+          });
+          const [jhkBerjalan, setJhkBerjalan] = useState(0);
+          const [totalHari, setTotalHari] = useState(0);
+          const [sisaJhk, setSisaJhk] = useState(0);
+          const [timeFactor, setTimeFactor] = useState(0);
+
+          // --- STATE INPUT DATA ---
+          const [targetNett, setTargetNett] = useState('');
+          const [actualNett, setActualNett] = useState('');
+          const [targetGM, setTargetGM] = useState(''); 
+          const [actualGM, setActualGM] = useState('');
+          const [inputBeGM, setInputBeGM] = useState('');
+
+          // --- FUNGSI TAMPILKAN NOTIFIKASI ---
+          const showNotif = (msg) => {
+            setToastMsg(msg);
+            if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
+            toastTimeoutRef.current = setTimeout(() => setToastMsg(''), 3000);
+          };
+
+          // --- EFEK: TOGGLE DARK MODE ---
+          useEffect(() => {
+            if (isDarkMode) {
+              document.documentElement.classList.add('dark');
+              localStorage.setItem('theme', 'dark');
+            } else {
+              document.documentElement.classList.remove('dark');
+              localStorage.setItem('theme', 'light');
+            }
+          }, [isDarkMode]);
+
+          // --- EFEK: FETCH DATABASE (TOKO & TARGET) DARI GAS ---
+          useEffect(() => {
+            const fetchDatabase = async () => {
+              setIsLoadingToko(true);
+              try {
+                const response = await fetch(scriptUrl);
+                const result = await response.json();
+                
+                if (result.status === 'success') {
+                  setDbToko(result.data.toko || []);
+                  setDbTargets(result.data.targets || []);
+                } else {
+                  showNotif('Gagal memuat DB: ' + result.message);
+                }
+              } catch (err) {
+                console.error(err);
+                showNotif('Koneksi Error: Gagal memuat DB (Cek URL GAS)');
+              } finally {
+                setIsLoadingToko(false);
+              }
+            };
+            
+            if (!scriptUrl || scriptUrl === 'URL_GAS_ANDA_DISINI') {
+               showNotif('PERHATIAN: URL GAS belum di-set di dalam script.');
+               setIsLoadingToko(false);
+            } else {
+               fetchDatabase();
+            }
+          }, []);
+
+          // --- EFEK: AUTO-FILL DATA TOKO & SINKRONISASI TARGET ---
+          useEffect(() => {
+            if (!kodeToko) {
+              setNamaToko(''); setAc(''); setAm('');
+              setTargetNett(''); setTargetGM('');
+              return;
+            }
+
+            // 1. Cari Data Toko
+            const foundToko = dbToko.find(t => t.kode === kodeToko.toUpperCase());
+            if (foundToko) {
+              setNamaToko(foundToko.nama);
+              setAc(foundToko.ac);
+              setAm(foundToko.am);
+
+              // 2. SINKRONISASI TARGET SESUAI BULAN & TAHUN
+              if (selectedDate) {
+                const dObj = new Date(selectedDate);
+                const currentMonth = dObj.getMonth() + 1;
+                const currentYear = dObj.getFullYear();
+
+                const existingTarget = dbTargets.find(t => 
+                  t.KODE_TOKO === kodeToko.toUpperCase() && 
+                  t.BULAN === currentMonth && 
+                  t.TAHUN === currentYear
+                );
+
+                if (existingTarget) {
+                  setTargetNett(formatCurrency(existingTarget.NETT_SALES));
+                  setTargetGM(existingTarget.GM_PCT.toString().replace('.', ','));
+                  showNotif(`Data Target bulan ${currentMonth}/${currentYear} disinkronkan.`);
+                } else {
+                  setTargetNett('');
+                  setTargetGM('');
+                }
+              }
+
+            } else {
+              setNamaToko('Tidak ditemukan');
+              setAc('-'); setAm('-');
+              setTargetNett(''); setTargetGM('');
+            }
+          }, [kodeToko, dbToko, dbTargets, selectedDate]);
+
+          // --- EFEK: MENGHITUNG WAKTU (JHK, Time Factor) ---
+          useEffect(() => {
+            if (!selectedDate) return;
+            const dateObj = new Date(selectedDate);
+            const year = dateObj.getFullYear();
+            const month = dateObj.getMonth();
+            const day = dateObj.getDate();
+
+            const daysInMonth = new Date(year, month + 1, 0).getDate();
+            const berjalan = day; 
+
+            setTotalHari(daysInMonth);
+            setJhkBerjalan(berjalan);
+            setSisaJhk(daysInMonth - berjalan);
+            setTimeFactor(daysInMonth > 0 ? (berjalan / daysInMonth) * 100 : 0);
+          }, [selectedDate]);
+
+          // --- FUNGSI FORMATTING & PARSING ---
+          const parseNumber = (val) => parseFloat(val.toString().replace(/\./g, '')) || 0;
+          const parsePercent = (val) => parseFloat(val.toString().replace(',', '.')) || 0;
+          
+          const formatCurrency = (num) => {
+            return new Intl.NumberFormat('id-ID', { maximumFractionDigits: 0 }).format(num);
+          };
+          
+          const formatPercentStr = (num) => {
+            return Number(num).toLocaleString('id-ID', { minimumFractionDigits: 0, maximumFractionDigits: 2 }) + "%";
+          };
+
+          const handleCurrencyInput = (setter) => (e) => {
+            const rawValue = e.target.value.replace(/\D/g, '');
+            setter(formatCurrency(rawValue));
+          };
+
+          // --- KALKULASI PENCAPAIAN ---
+          const tNett = parseNumber(targetNett);
+          const aNett = parseNumber(actualNett);
+          const tGMpct = parsePercent(targetGM);
+          const aGMpct = parsePercent(actualGM);
+
+          const tGMRp = tNett * (tGMpct / 100);
+          const aGMRp = aNett * (aGMpct / 100);
+
+          const acvNett = tNett ? (aNett / tNett) * 100 : 0;
+          const gapNett = aNett - tNett;
+
+          const acvGMpct = tGMpct ? (aGMpct / tGMpct) * 100 : 0;
+          const gapGMpct = aGMpct - tGMpct;
+
+          const acvGMRp = tGMRp ? (aGMRp / tGMRp) * 100 : 0;
+          const gapGMRp = aGMRp - tGMRp;
+
+          // --- KALKULASI BEST ESTIMATE ---
+          let beGMRp = tGMRp - aGMRp;
+          let beNett = tNett - aNett;
+
+          // 1. GM% Best Estimate default otomatis terisi = Aktual GM%
+          const defaultBeGM = aGMpct;
+          const activeBeGM = inputBeGM !== '' ? parsePercent(inputBeGM) : defaultBeGM;
+
+          if (inputBeGM !== '') {
+            beNett = activeBeGM > 0 ? beGMRp / (activeBeGM / 100) : 0;
+          }
+
+          const harianNett = sisaJhk > 0 ? beNett / sisaJhk : 0;
+          const harianGMRp = sisaJhk > 0 ? beGMRp / sisaJhk : 0;
+          const harianGMpct = activeBeGM;
+
+          const handleMenuClick = (menu) => {
+            if (menu === 'IKT') setActiveTab('IKT');
+            else showNotif("Menu " + menu + " dalam proses pengembangan");
+          };
+
+          // --- 2. FUNGSI EXPORT PDF ---
+          const handleExportPDF = () => {
+            const element = document.getElementById('pdf-content');
+            if (!element) return;
+            
+            showNotif('Sedang menyiapkan PDF...');
+            
+            const opt = {
+              margin:       [0.5, 0.5, 0.5, 0.5], // atas, kiri, bawah, kanan
+              filename:     `Monitor_IKT_${kodeToko || 'Blank'}_${selectedDate}.pdf`,
+              image:        { type: 'jpeg', quality: 0.98 },
+              html2canvas:  { scale: 2, useCORS: true, windowWidth: 1024 },
+              jsPDF:        { unit: 'in', format: 'a4', orientation: 'portrait' }
+            };
+
+            window.html2pdf().set(opt).from(element).save().then(() => {
+                showNotif('✅ PDF berhasil diunduh!');
+            }).catch(err => {
+                showNotif('❌ Gagal export PDF');
+                console.error(err);
+            });
+          };
+
+          // --- SIMULASI BACKEND (GAS) ---
+          const handleSaveToGAS = async () => {
+            if (!kodeToko || namaToko === 'Tidak ditemukan' || isLoadingToko) {
+              showNotif('Mohon isi Kode Toko yang valid dari DB sebelum menyimpan!');
+              return;
+            }
+
+            showNotif('Menyimpan data, mohon tunggu...');
+            const dObj = new Date(selectedDate);
+            const currentMonth = dObj.getMonth() + 1;
+            const currentYear = dObj.getFullYear();
+
+            const payload = {
+              sheetName: 'IKT',
+              data: {
+                KODE_TOKO: kodeToko.toUpperCase(),
+                NAMA_TOKO: namaToko,
+                NETT_SALES: tNett,
+                GM_PCT: tGMpct,
+                GM_RP: tGMRp,
+                BULAN: currentMonth,
+                TAHUN: currentYear
+              }
+            };
+            
+            try {
+              const response = await fetch(scriptUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'text/plain;charset=utf-8' }, 
+                body: JSON.stringify(payload)
+              });
+
+              const result = await response.json();
+
+              if (result.status === 'success') {
+                showNotif("✅ Target Disimpan & Diperbarui!");
+                
+                // Update State lokal agar langsung sinkron tanpa perlu refresh
+                setDbTargets(prev => {
+                  const updatedTargets = [...prev];
+                  const idx = updatedTargets.findIndex(t => t.KODE_TOKO === payload.data.KODE_TOKO && t.BULAN === payload.data.BULAN && t.TAHUN === payload.data.TAHUN);
+                  if (idx >= 0) updatedTargets[idx] = payload.data;
+                  else updatedTargets.push(payload.data);
+                  return updatedTargets;
+                });
+              } else {
+                showNotif("❌ Gagal: " + result.message);
+              }
+            } catch (error) {
+              console.error(error);
+              showNotif('❌ Koneksi Error: Gagal menyimpan data');
+            }
+          };
+
+          return (
+            <div className="min-h-screen text-slate-800 dark:text-slate-200 pb-20 font-sans transition-colors duration-300">
+              
+              {/* Notifikasi Mengambang */}
+              {toastMsg && (
+                <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/20 dark:bg-black/40 backdrop-blur-sm transition-all duration-300">
+                  <div className="bg-white/80 dark:bg-slate-800/80 backdrop-blur-xl px-8 py-6 rounded-2xl shadow-2xl flex flex-col items-center gap-4 transform transition-all scale-100 animate-[bounce_0.5s_ease-in-out] border border-white/50 dark:border-slate-700/50 min-w-[280px] max-w-[85%] text-center">
+                    <div className="bg-blue-100/80 dark:bg-slate-700/80 p-4 rounded-full shadow-inner">
+                      {toastMsg.includes('✅') ? <Save size={36} className="text-green-600 dark:text-green-400" /> : <Info size={36} className="text-blue-600 dark:text-blue-400" />}
+                    </div>
+                    <p className="text-lg font-bold text-slate-800 dark:text-white leading-tight">{toastMsg.replace('✅ ', '').replace('❌ ', '')}</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Wrapper untuk area Export PDF */}
+              <div id="pdf-content" className="pb-4">
+
+              {/* Header */}
+              <div className="bg-white/60 dark:bg-slate-900/60 backdrop-blur-lg shadow-sm border-b border-white/20 dark:border-slate-800/50 px-4 py-4 flex justify-between items-center sticky top-0 z-40 transition-colors duration-300">
+                <div className="flex items-center gap-3">
+                  <button onClick={() => setIsDarkMode(!isDarkMode)} data-html2canvas-ignore="true" className="p-2 bg-slate-100/80 dark:bg-slate-800/80 backdrop-blur-md rounded-full text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition border border-white/40 dark:border-slate-700">
+                    {isDarkMode ? <Sun size={20} /> : <Moon size={20} />}
+                  </button>
+                  <div>
+                    <h1 className="text-xl font-bold text-blue-700 dark:text-blue-400 leading-none">MONITOR IKT 2026</h1>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">powered by raistech.</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2" data-html2canvas-ignore="true">
+                  <button onClick={handleExportPDF} className="bg-red-600 dark:bg-red-500 text-white p-2 sm:px-3 sm:py-2 rounded-lg shadow-lg shadow-red-500/30 hover:bg-red-700 transition flex items-center gap-2 text-sm font-semibold">
+                    <FileDown size={16} /> <span className="hidden sm:inline">Export PDF</span>
+                  </button>
+                  <button onClick={handleSaveToGAS} className="bg-blue-600 dark:bg-blue-500 text-white p-2 sm:px-3 sm:py-2 rounded-lg shadow-lg shadow-blue-500/30 hover:bg-blue-700 transition flex items-center gap-2 text-sm font-semibold">
+                    <Save size={16} /> <span className="hidden sm:inline">Save Target</span>
+                  </button>
+                </div>
+              </div>
+
+              <div className="p-4 max-w-4xl mx-auto space-y-4 sm:space-y-6">
+                
+                {/* Section: INFORMASI TOKO */}
+                <div className="bg-white dark:bg-slate-800 p-4 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 relative transition-colors duration-300">
+                  {isLoadingToko && (
+                    <div className="absolute inset-0 bg-white/70 dark:bg-slate-800/80 z-10 flex flex-col items-center justify-center rounded-xl backdrop-blur-sm">
+                       <Loader2 className="animate-spin text-blue-500 mb-2" size={32} />
+                       <span className="text-sm font-semibold text-slate-600 dark:text-slate-300">wait! Sync Database</span>
+                    </div>
+                  )}
+                  <div className="flex items-center gap-2 mb-4 border-b dark:border-slate-700 pb-2">
+                    <Store size={18} className="text-blue-600 dark:text-blue-400" />
+                    <h2 className="font-semibold text-slate-800 dark:text-slate-100">INFORMASI TOKO</h2>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <label className="text-xs font-semibold text-slate-500 dark:text-slate-400">KODE TOKO</label>
+                      <div className="relative">
+                        <input type="text" value={kodeToko} onChange={(e) => setKodeToko(e.target.value)} placeholder="Ketik Kode Toko..." className="w-full bg-transparent border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 pl-9 focus:ring-blue-500 focus:border-blue-500 outline-none uppercase dark:text-white" disabled={isLoadingToko} />
+                        <Search size={16} className="absolute left-3 top-2.5 text-slate-400" />
+                      </div>
+                      <p className={"text-[10px] " + (dbToko.length > 0 ? "text-green-600 dark:text-green-400 font-medium" : "text-slate-400")}>
+                        {dbToko.length > 0 ? "✅ Terhubung ke database" : "Menunggu DB..."}
+                      </p>
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-xs font-semibold text-slate-500 dark:text-slate-400">NAMA TOKO</label>
+                      <input type="text" value={namaToko} readOnly className="w-full bg-slate-100 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-2 text-slate-600 dark:text-slate-300 font-medium outline-none cursor-not-allowed" />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-xs font-semibold text-slate-500 dark:text-slate-400">AREA COORDINATOR (AC)</label>
+                      <input type="text" value={ac} readOnly className="w-full bg-slate-100 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-2 text-slate-600 dark:text-slate-300 outline-none cursor-not-allowed" />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-xs font-semibold text-slate-500 dark:text-slate-400">AREA MANAGER (AM)</label>
+                      <input type="text" value={am} readOnly className="w-full bg-slate-100 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-2 text-slate-600 dark:text-slate-300 outline-none cursor-not-allowed" />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Section: Waktu & Kalender */}
+                <div className="bg-white dark:bg-slate-800 p-4 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 transition-colors duration-300">
+                  <div className="flex flex-col sm:flex-row gap-4 items-center justify-between">
+                    <div className="flex items-center gap-3 w-full sm:w-auto">
+                      <Calendar className="text-blue-500 dark:text-blue-400" />
+                      <input type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} className="block w-full sm:w-48 bg-slate-50 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 focus:ring-blue-500 outline-none dark:text-white dark:[color-scheme:dark]" />
+                    </div>
+                    <div className="flex gap-4 w-full sm:w-auto text-sm">
+                      <div className="bg-blue-50 dark:bg-blue-900/30 px-4 py-2 rounded-lg border border-blue-100 dark:border-blue-800/50 flex-1 text-center">
+                        <p className="text-slate-500 dark:text-slate-400 text-xs font-semibold">JHK BERJALAN</p>
+                        <p className="font-bold text-blue-700 dark:text-blue-400">{jhkBerjalan} <span className="text-xs font-normal">Hari</span></p>
+                      </div>
+                      <div className="bg-orange-50 dark:bg-orange-900/30 px-4 py-2 rounded-lg border border-orange-100 dark:border-orange-800/50 flex-1 text-center">
+                        <p className="text-slate-500 dark:text-slate-400 text-xs font-semibold">TIME FACTOR</p>
+                        <p className="font-bold text-orange-700 dark:text-orange-400">{formatPercentStr(timeFactor)}</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Section: PENCAPAIAN */}
+                <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden transition-colors duration-300">
+                  <div className="bg-slate-800 dark:bg-slate-900 text-white px-4 py-3 flex justify-between items-center border-b dark:border-slate-700">
+                    <h2 className="font-semibold">PENCAPAIAN</h2>
+                    <span className="flex items-center gap-1 text-[10px] bg-blue-600 dark:bg-blue-700 px-2 py-1 rounded"><RefreshCw size={10} /> Auto-Sync Data</span>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm text-left">
+                      <thead className="text-xs text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800/50 uppercase border-b dark:border-slate-700">
+                        <tr>
+                          <th className="px-4 py-3">Indikator</th>
+                          <th className="px-4 py-3 border-x border-slate-200 dark:border-slate-700 bg-blue-50/50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300">Target</th>
+                          <th className="px-4 py-3">Aktual</th>
+                          <th className="px-4 py-3 text-center">ACV %</th>
+                          <th className="px-4 py-3 text-right">GAP</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
+                        <tr className="hover:bg-slate-50 dark:hover:bg-slate-700/50">
+                          <td className="px-4 py-3 font-medium text-slate-800 dark:text-slate-200">Nett Sales</td>
+                          <td className="px-4 py-2 border-x border-slate-200 dark:border-slate-700 bg-blue-50/30 dark:bg-blue-900/10">
+                            <input type="text" value={targetNett} onChange={handleCurrencyInput(setTargetNett)} placeholder="0" className="w-28 sm:w-32 bg-white dark:bg-slate-700 border border-blue-300 dark:border-blue-600 rounded px-2 py-1 text-right focus:ring-blue-500 outline-none shadow-inner dark:text-white" />
+                          </td>
+                          <td className="px-4 py-2">
+                            <input type="text" value={actualNett} onChange={handleCurrencyInput(setActualNett)} placeholder="0" className="w-28 sm:w-32 bg-transparent border border-slate-200 dark:border-slate-600 rounded px-2 py-1 text-right focus:ring-slate-400 outline-none dark:text-white" />
+                          </td>
+                          <td className={"px-4 py-3 text-center font-semibold " + (acvNett >= 100 ? 'text-green-600 dark:text-green-400' : 'text-red-500 dark:text-red-400')}>{formatPercentStr(acvNett)}</td>
+                          <td className={"px-4 py-3 text-right font-semibold " + (gapNett >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-500 dark:text-red-400')}>{formatCurrency(gapNett)}</td>
+                        </tr>
+                        <tr className="hover:bg-slate-50 dark:hover:bg-slate-700/50">
+                          <td className="px-4 py-3 font-medium text-slate-800 dark:text-slate-200">GM %</td>
+                          <td className="px-4 py-2 border-x border-slate-200 dark:border-slate-700 bg-blue-50/30 dark:bg-blue-900/10">
+                            <div className="relative">
+                              <input type="text" value={targetGM} onChange={(e) => setTargetGM(e.target.value)} placeholder="15,5" className="w-28 sm:w-32 bg-white dark:bg-slate-700 border border-blue-300 dark:border-blue-600 rounded px-2 py-1 text-right pr-6 focus:ring-blue-500 outline-none shadow-inner dark:text-white" />
+                              <span className="absolute right-2 top-1.5 text-slate-400">%</span>
+                            </div>
+                          </td>
+                          <td className="px-4 py-2">
+                            <div className="relative">
+                              <input type="text" value={actualGM} onChange={(e) => setActualGM(e.target.value)} placeholder="14,0" className="w-28 sm:w-32 bg-transparent border border-slate-200 dark:border-slate-600 rounded px-2 py-1 text-right pr-6 focus:ring-slate-400 outline-none dark:text-white" />
+                              <span className="absolute right-2 top-1.5 text-slate-400">%</span>
+                            </div>
+                          </td>
+                          <td className={"px-4 py-3 text-center font-semibold " + (acvGMpct >= 100 ? 'text-green-600 dark:text-green-400' : 'text-red-500 dark:text-red-400')}>{formatPercentStr(acvGMpct)}</td>
+                          <td className={"px-4 py-3 text-right font-semibold " + (gapGMpct >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-500 dark:text-red-400')}>{formatPercentStr(gapGMpct)}</td>
+                        </tr>
+                        <tr className="bg-slate-50/50 dark:bg-slate-800/50">
+                          <td className="px-4 py-3 font-medium text-slate-800 dark:text-slate-200">GM Rp</td>
+                          <td className="px-4 py-3 text-right text-blue-700 dark:text-blue-400 font-semibold border-x border-slate-200 dark:border-slate-700 bg-blue-50/30 dark:bg-blue-900/10">{formatCurrency(tGMRp)}</td>
+                          <td className="px-4 py-3 text-right text-slate-600 dark:text-slate-400">{formatCurrency(aGMRp)}</td>
+                          <td className={"px-4 py-3 text-center font-semibold " + (acvGMRp >= 100 ? 'text-green-600 dark:text-green-400' : 'text-red-500 dark:text-red-400')}>{formatPercentStr(acvGMRp)}</td>
+                          <td className={"px-4 py-3 text-right font-semibold " + (gapGMRp >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-500 dark:text-red-400')}>{formatCurrency(gapGMRp)}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {/* Section: BEST ESTIMATE */}
+                <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden transition-colors duration-300">
+                  <div className="bg-blue-800 dark:bg-blue-900 text-white px-4 py-3 flex justify-between items-center">
+                    <h2 className="font-semibold">BEST ESTIMATE (Sisa Target)</h2>
+                    <span className="text-xs bg-blue-700 dark:bg-blue-800 px-2 py-1 rounded border border-blue-600 dark:border-blue-700 shadow-inner">Sisa JHK: {sisaJhk} Hari</span>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm text-left">
+                      <thead className="text-xs text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800/50 uppercase border-b dark:border-slate-700">
+                        <tr>
+                          <th className="px-4 py-3">Indikator</th>
+                          <th className="px-4 py-3 text-right">Target BE</th>
+                          <th className="px-4 py-3 text-center">Sisa JHK</th>
+                          <th className="px-4 py-3 text-right">Target Harian</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
+                        <tr className="hover:bg-slate-50 dark:hover:bg-slate-700/50">
+                          <td className="px-4 py-3 font-medium text-slate-800 dark:text-slate-200">Nett Sales</td>
+                          <td className="px-4 py-3 text-right text-blue-700 dark:text-blue-400 font-semibold">{formatCurrency(beNett)}</td>
+                          <td className="px-4 py-3 text-center text-slate-500 dark:text-slate-400">{sisaJhk}</td>
+                          <td className="px-4 py-3 text-right text-orange-600 dark:text-orange-400 font-bold">{formatCurrency(harianNett)}</td>
+                        </tr>
+                        <tr className="hover:bg-slate-50 dark:hover:bg-slate-700/50">
+                          <td className="px-4 py-3 font-medium text-slate-800 dark:text-slate-200">GM %</td>
+                          <td className="px-4 py-2 text-right">
+                            <div className="relative inline-block">
+                              <input type="text" value={inputBeGM} onChange={(e) => setInputBeGM(e.target.value)} placeholder={formatPercentStr(defaultBeGM).replace('%','')} className="w-24 sm:w-28 bg-blue-50 dark:bg-slate-700 border border-blue-200 dark:border-slate-600 rounded px-2 py-1 text-right pr-6 focus:ring-blue-500 outline-none dark:text-white" />
+                              <span className="absolute right-2 top-1.5 text-slate-400">%</span>
+                            </div>
+                          </td>
+                          <td className="px-4 py-3 text-center text-slate-500 dark:text-slate-400">{sisaJhk}</td>
+                          <td className="px-4 py-3 text-right text-orange-600 dark:text-orange-400 font-bold">{formatPercentStr(harianGMpct)}</td>
+                        </tr>
+                        <tr className="bg-slate-50/50 dark:bg-slate-800/50">
+                          <td className="px-4 py-3 font-medium text-slate-800 dark:text-slate-200">GM Rp</td>
+                          <td className="px-4 py-3 text-right text-blue-700 dark:text-blue-400 font-semibold">{formatCurrency(beGMRp)}</td>
+                          <td className="px-4 py-3 text-center text-slate-500 dark:text-slate-400">{sisaJhk}</td>
+                          <td className="px-4 py-3 text-right text-orange-600 dark:text-orange-400 font-bold">{formatCurrency(harianGMRp)}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+              
+              </div>
+
+              {/* Bottom Navigation Bar */}
+              <div className="fixed bottom-0 w-full bg-white/40 dark:bg-slate-900/40 backdrop-blur-xl border-t border-white/60 dark:border-slate-700/50 shadow-[0_-8px_30px_rgba(0,0,0,0.1)] z-50 transition-colors duration-300">
+                <div className="flex justify-around items-center h-16 max-w-md mx-auto px-4">
+                  <button onClick={() => handleMenuClick('PPSA')} className={"flex flex-col items-center justify-center w-full h-full gap-1 transition-colors " + (activeTab === 'PPSA' ? 'text-blue-600 dark:text-blue-400' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-300')}>
+                    <Store size={22} className={activeTab === 'PPSA' ? 'fill-blue-100 dark:fill-blue-900/50' : ''} />
+                    <span className="text-[10px] font-semibold">PPSA</span>
+                  </button>
+                  <button onClick={() => handleMenuClick('IKT')} className={"flex flex-col items-center justify-center w-full h-full gap-1 transition-colors " + (activeTab === 'IKT' ? 'text-blue-600 dark:text-blue-400' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-300')}>
+                    <BarChart2 size={24} className={activeTab === 'IKT' ? 'fill-blue-100 dark:fill-blue-900/50' : ''} />
+                    <span className="text-[10px] font-semibold">IKT</span>
+                  </button>
+                  <button onClick={() => handleMenuClick('IKAC/IKAM')} className={"flex flex-col items-center justify-center w-full h-full gap-1 transition-colors " + (activeTab === 'IKAC/IKAM' ? 'text-blue-600 dark:text-blue-400' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-300')}>
+                    <Users size={22} className={activeTab === 'IKAC/IKAM' ? 'fill-blue-100 dark:fill-blue-900/50' : ''} />
+                    <span className="text-[10px] font-semibold">IKAC/IKAM</span>
+                  </button>
+                </div>
+              </div>
+
+            </div>
+          );
+        }
+
+        const root = createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
