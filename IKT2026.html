@@ -181,21 +181,29 @@
 
           // --- KALKULASI BEST ESTIMATE ---
           let beGMRp = tGMRp - aGMRp;
+          if (beGMRp < 0) beGMRp = 0; // Cegah minus jika GM Rp sudah melebihi target
 
-          // GM% Best Estimate default otomatis terisi = Aktual GM%
-          const defaultBeGM = aGMpct;
+          // GM% BE otomatis pakai Aktual GM%. Jika Aktual masih kosong (0), pakai Target GM% agar tidak error pembagian nol
+          const defaultBeGM = aGMpct > 0 ? aGMpct : tGMpct;
           const activeBeGM = inputBeGM !== '' ? parsePercent(inputBeGM) : defaultBeGM;
 
           let beNett = 0;
 
-          // LOGIKA BARU: Penentuan Sisa Target Nett (BE Sales)
-          if (aGMpct >= tGMpct && inputBeGM === '') {
-            // 1. Jika GM% TERCAPAI: BE Nett cukup mengejar Sisa Target Nett Sales aslinya
-            beNett = tNett - aNett;
-          } else {
-            // 2. Jika GM% TIDAK TERCAPAI (atau diinput manual): BE Nett harus digenjot untuk menutupi kekurangan target GM Rupiah
+          if (inputBeGM !== '') {
+            // Jika GM% BE diisi manual, paksa hitung BE Nett menutupi sisa GM Rp
             beNett = activeBeGM > 0 ? (beGMRp / (activeBeGM / 100)) : 0;
+          } else {
+            if (aGMpct >= tGMpct && aGMpct > 0) {
+              // 1. Jika GM% TERCAPAI: BE Nett cukup mengejar sisa Target Nett Sales aslinya
+              beNett = tNett - aNett;
+            } else {
+              // 2. Jika GM% TIDAK TERCAPAI: BE Nett harus digenjot untuk menutupi Kekurangan GM Rupiah
+              beNett = activeBeGM > 0 ? (beGMRp / (activeBeGM / 100)) : 0;
+            }
           }
+
+          // Cegah minus jika target Nett Sales sudah tercapai
+          if (beNett < 0) beNett = 0;
 
           const harianNett = sisaJhk > 0 ? beNett / sisaJhk : 0;
           const harianGMRp = sisaJhk > 0 ? beGMRp / sisaJhk : 0;
