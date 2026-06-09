@@ -8,7 +8,8 @@
     <script>
       tailwind.config = { darkMode: 'class' }
     </script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <!-- Mengganti html2pdf dengan html2canvas untuk export gambar -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script type="importmap">
     {
@@ -26,7 +27,7 @@
     <script type="text/babel" data-type="module">
         import React, { useState, useEffect, useRef } from 'react';
         import { createRoot } from 'react-dom/client';
-        import { Store, BarChart2, Users, Calendar, Info, Save, Search, Loader2, Moon, Sun, RefreshCw, FileDown } from 'lucide-react';
+        import { Store, BarChart2, Users, Calendar, Info, Save, Search, Loader2, Moon, Sun, RefreshCw, Image as ImageIcon } from 'lucide-react';
 
         // 🔴 PASTE URL GOOGLE APPS SCRIPT ANDA DI SINI
         const scriptUrl = "https://script.google.com/macros/s/AKfycbx8eJSHAgVUTaN8vZg5pWc_dIfYooGtRbfAIkBvSjKLdHswkutjrQ-yy5m3YZrhK-F6/exec";
@@ -72,7 +73,7 @@
           const [actualGM, setActualGM] = useState('');
           const [inputBeGM, setInputBeGM] = useState('');
 
-          // --- FUNGSI TAMPILKAN NOTIFIKASI ---
+          // --- FUNGSI TAMPILKAN NOTIFIKASI TOAST (NON-BLOCKING) ---
           const showNotif = (msg) => {
             setToastMsg(msg);
             if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
@@ -135,7 +136,7 @@
               setAc(foundToko.ac);
               setAm(foundToko.am);
 
-              // 2. SINKRONISASI TARGET SESUAI BULAN & TAHUN
+              // 2. SINKRONISASI TARGET SESUAI BULAN & TAHUN DARI SHEET "IKT"
               if (selectedDate) {
                 const dObj = new Date(selectedDate);
                 const currentMonth = dObj.getMonth() + 1;
@@ -148,10 +149,12 @@
                 );
 
                 if (existingTarget) {
+                  // Jika data ada di database, set state otomatis
                   setTargetNett(formatCurrency(existingTarget.NETT_SALES));
                   setTargetGM(existingTarget.GM_PCT.toString().replace('.', ','));
-                  showNotif(`Data Target bulan ${currentMonth}/${currentYear} disinkronkan.`);
+                  showNotif(`🔄 Data Target bulan ${currentMonth}/${currentYear} dimuat.`);
                 } else {
+                  // Jika tidak ada, kosongkan agar user bisa input baru
                   setTargetNett('');
                   setTargetGM('');
                 }
@@ -220,7 +223,7 @@
           let beGMRp = tGMRp - aGMRp;
           let beNett = tNett - aNett;
 
-          // 1. GM% Best Estimate default otomatis terisi = Aktual GM%
+          // GM% Best Estimate default otomatis terisi = Aktual GM%
           const defaultBeGM = aGMpct;
           const activeBeGM = inputBeGM !== '' ? parsePercent(inputBeGM) : defaultBeGM;
 
@@ -237,27 +240,39 @@
             else showNotif("Menu " + menu + " dalam proses pengembangan");
           };
 
-          // --- 2. FUNGSI EXPORT PDF ---
-          const handleExportPDF = () => {
-            const element = document.getElementById('pdf-content');
+          // --- 2. FUNGSI EXPORT GAMBAR (FULL SCREEN) ---
+          const handleExportImage = async () => {
+            const element = document.getElementById('export-content');
             if (!element) return;
             
-            showNotif('Sedang menyiapkan PDF...');
+            showNotif('📸 Sedang menangkap gambar...');
             
-            const opt = {
-              margin:       [0.5, 0.5, 0.5, 0.5], // atas, kiri, bawah, kanan
-              filename:     `Monitor_IKT_${kodeToko || 'Blank'}_${selectedDate}.pdf`,
-              image:        { type: 'jpeg', quality: 0.98 },
-              html2canvas:  { scale: 2, useCORS: true, windowWidth: 1024 },
-              jsPDF:        { unit: 'in', format: 'a4', orientation: 'portrait' }
-            };
+            try {
+              // Menyembunyikan cursor input sebelum dirender
+              const inputs = element.querySelectorAll('input');
+              inputs.forEach(i => i.blur());
 
-            window.html2pdf().set(opt).from(element).save().then(() => {
-                showNotif('✅ PDF berhasil diunduh!');
-            }).catch(err => {
-                showNotif('❌ Gagal export PDF');
+              const canvas = await window.html2canvas(element, {
+                scale: 2, // Resolusi tinggi
+                useCORS: true, // Handle gambar eksternal (jika ada)
+                backgroundColor: isDarkMode ? '#0f172a' : '#f8fafc', // Sesuaikan warna bg body
+                windowWidth: 1024 // Lebar standar agar tampilan konsisten seperti di desktop/tablet
+              });
+
+              // Ubah canvas menjadi data base64 (format PNG)
+              const imgData = canvas.toDataURL('image/png');
+              
+              // Buat elemen link anchor palsu untuk men-trigger download
+              const link = document.createElement('a');
+              link.download = `Monitor_IKT_${kodeToko || 'Blank'}_${selectedDate}.png`;
+              link.href = imgData;
+              link.click();
+
+              showNotif('✅ Gambar berhasil diunduh!');
+            } catch (err) {
+                showNotif('❌ Gagal export Gambar');
                 console.error(err);
-            });
+            }
           };
 
           // --- SIMULASI BACKEND (GAS) ---
@@ -267,7 +282,7 @@
               return;
             }
 
-            showNotif('Menyimpan data, mohon tunggu...');
+            showNotif('⏳ Menyimpan data...');
             const dObj = new Date(selectedDate);
             const currentMonth = dObj.getMonth() + 1;
             const currentYear = dObj.getFullYear();
@@ -295,7 +310,7 @@
               const result = await response.json();
 
               if (result.status === 'success') {
-                showNotif("✅ Target Disimpan & Diperbarui!");
+                showNotif("✅ Target Berhasil Disimpan!");
                 
                 // Update State lokal agar langsung sinkron tanpa perlu refresh
                 setDbTargets(prev => {
@@ -317,20 +332,21 @@
           return (
             <div className="min-h-screen text-slate-800 dark:text-slate-200 pb-20 font-sans transition-colors duration-300">
               
-              {/* Notifikasi Mengambang */}
+              {/* Notifikasi Mengambang (Toast Non-Blocking) */}
               {toastMsg && (
-                <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/20 dark:bg-black/40 backdrop-blur-sm transition-all duration-300">
-                  <div className="bg-white/80 dark:bg-slate-800/80 backdrop-blur-xl px-8 py-6 rounded-2xl shadow-2xl flex flex-col items-center gap-4 transform transition-all scale-100 animate-[bounce_0.5s_ease-in-out] border border-white/50 dark:border-slate-700/50 min-w-[280px] max-w-[85%] text-center">
-                    <div className="bg-blue-100/80 dark:bg-slate-700/80 p-4 rounded-full shadow-inner">
-                      {toastMsg.includes('✅') ? <Save size={36} className="text-green-600 dark:text-green-400" /> : <Info size={36} className="text-blue-600 dark:text-blue-400" />}
-                    </div>
-                    <p className="text-lg font-bold text-slate-800 dark:text-white leading-tight">{toastMsg.replace('✅ ', '').replace('❌ ', '')}</p>
+                <div className="fixed top-6 left-0 right-0 z-[100] flex justify-center pointer-events-none transition-all duration-300 animate-[slideDown_0.3s_ease-out]">
+                  <div className="bg-slate-900/90 dark:bg-slate-100/90 backdrop-blur-md px-6 py-3 rounded-full shadow-xl flex items-center gap-3 border border-white/10">
+                    {toastMsg.includes('✅') && <Save size={18} className="text-green-400 dark:text-green-600" />}
+                    {toastMsg.includes('❌') && <Info size={18} className="text-red-400 dark:text-red-600" />}
+                    {toastMsg.includes('🔄') && <RefreshCw size={18} className="text-blue-400 dark:text-blue-600 animate-spin-slow" />}
+                    {!toastMsg.match(/[✅❌🔄]/) && <Info size={18} className="text-blue-400 dark:text-blue-600" />}
+                    <p className="text-sm font-semibold text-white dark:text-slate-900">{toastMsg.replace(/[✅❌🔄📸⏳] /g, '')}</p>
                   </div>
                 </div>
               )}
 
-              {/* Wrapper untuk area Export PDF */}
-              <div id="pdf-content" className="pb-4">
+              {/* Wrapper untuk area Export Gambar */}
+              <div id="export-content" className="pb-4 bg-slate-50 dark:bg-slate-900">
 
               {/* Header */}
               <div className="bg-white/60 dark:bg-slate-900/60 backdrop-blur-lg shadow-sm border-b border-white/20 dark:border-slate-800/50 px-4 py-4 flex justify-between items-center sticky top-0 z-40 transition-colors duration-300">
@@ -344,8 +360,8 @@
                   </div>
                 </div>
                 <div className="flex items-center gap-2" data-html2canvas-ignore="true">
-                  <button onClick={handleExportPDF} className="bg-red-600 dark:bg-red-500 text-white p-2 sm:px-3 sm:py-2 rounded-lg shadow-lg shadow-red-500/30 hover:bg-red-700 transition flex items-center gap-2 text-sm font-semibold">
-                    <FileDown size={16} /> <span className="hidden sm:inline">Export PDF</span>
+                  <button onClick={handleExportImage} className="bg-emerald-600 dark:bg-emerald-500 text-white p-2 sm:px-3 sm:py-2 rounded-lg shadow-lg shadow-emerald-500/30 hover:bg-emerald-700 transition flex items-center gap-2 text-sm font-semibold">
+                    <ImageIcon size={16} /> <span className="hidden sm:inline">Export Gambar</span>
                   </button>
                   <button onClick={handleSaveToGAS} className="bg-blue-600 dark:bg-blue-500 text-white p-2 sm:px-3 sm:py-2 rounded-lg shadow-lg shadow-blue-500/30 hover:bg-blue-700 transition flex items-center gap-2 text-sm font-semibold">
                     <Save size={16} /> <span className="hidden sm:inline">Save Target</span>
@@ -358,9 +374,9 @@
                 {/* Section: INFORMASI TOKO */}
                 <div className="bg-white dark:bg-slate-800 p-4 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 relative transition-colors duration-300">
                   {isLoadingToko && (
-                    <div className="absolute inset-0 bg-white/70 dark:bg-slate-800/80 z-10 flex flex-col items-center justify-center rounded-xl backdrop-blur-sm">
+                    <div className="absolute inset-0 bg-white/70 dark:bg-slate-800/80 z-10 flex flex-col items-center justify-center rounded-xl backdrop-blur-sm" data-html2canvas-ignore="true">
                        <Loader2 className="animate-spin text-blue-500 mb-2" size={32} />
-                       <span className="text-sm font-semibold text-slate-600 dark:text-slate-300">wait! Sync Database</span>
+                       <span className="text-sm font-semibold text-slate-600 dark:text-slate-300">Sync Database...</span>
                     </div>
                   )}
                   <div className="flex items-center gap-2 mb-4 border-b dark:border-slate-700 pb-2">
@@ -375,7 +391,7 @@
                         <Search size={16} className="absolute left-3 top-2.5 text-slate-400" />
                       </div>
                       <p className={"text-[10px] " + (dbToko.length > 0 ? "text-green-600 dark:text-green-400 font-medium" : "text-slate-400")}>
-                        {dbToko.length > 0 ? "✅ Terhubung ke database" : "Menunggu DB..."}
+                        {dbToko.length > 0 ? "✅ DB Terkoneksi" : "Menunggu DB..."}
                       </p>
                     </div>
                     <div className="space-y-1">
@@ -417,7 +433,7 @@
                 <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden transition-colors duration-300">
                   <div className="bg-slate-800 dark:bg-slate-900 text-white px-4 py-3 flex justify-between items-center border-b dark:border-slate-700">
                     <h2 className="font-semibold">PENCAPAIAN</h2>
-                    <span className="flex items-center gap-1 text-[10px] bg-blue-600 dark:bg-blue-700 px-2 py-1 rounded"><RefreshCw size={10} /> Auto-Sync Data</span>
+                    <span className="flex items-center gap-1 text-[10px] bg-blue-600 dark:bg-blue-700 px-2 py-1 rounded" data-html2canvas-ignore="true"><RefreshCw size={10} /> Auto-Sync Data</span>
                   </div>
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm text-left">
@@ -520,7 +536,7 @@
               </div>
 
               {/* Bottom Navigation Bar */}
-              <div className="fixed bottom-0 w-full bg-white/40 dark:bg-slate-900/40 backdrop-blur-xl border-t border-white/60 dark:border-slate-700/50 shadow-[0_-8px_30px_rgba(0,0,0,0.1)] z-50 transition-colors duration-300">
+              <div className="fixed bottom-0 w-full bg-white/40 dark:bg-slate-900/40 backdrop-blur-xl border-t border-white/60 dark:border-slate-700/50 shadow-[0_-8px_30px_rgba(0,0,0,0.1)] z-50 transition-colors duration-300" data-html2canvas-ignore="true">
                 <div className="flex justify-around items-center h-16 max-w-md mx-auto px-4">
                   <button onClick={() => handleMenuClick('PPSA')} className={"flex flex-col items-center justify-center w-full h-full gap-1 transition-colors " + (activeTab === 'PPSA' ? 'text-blue-600 dark:text-blue-400' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-300')}>
                     <Store size={22} className={activeTab === 'PPSA' ? 'fill-blue-100 dark:fill-blue-900/50' : ''} />
@@ -544,5 +560,12 @@
         const root = createRoot(document.getElementById('root'));
         root.render(<App />);
     </script>
+    <style>
+      /* CSS Animasi Toast */
+      @keyframes slideDown {
+        from { transform: translateY(-100%); opacity: 0; }
+        to { transform: translateY(0); opacity: 1; }
+      }
+    </style>
 </body>
 </html>
