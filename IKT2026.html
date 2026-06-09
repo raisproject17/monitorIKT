@@ -194,20 +194,49 @@
           const handleExportImage = async () => {
             const element = document.getElementById('export-content');
             if (!element) return;
-            showNotif('📸 Menyiapkan gambar...');
+            
+            showNotif('📸 Menyiapkan gambar resolusi tinggi...');
+            
             try {
+              // 1. Hilangkan fokus kursor agar garis biru (outline) input tidak ikut terfoto
+              if (document.activeElement instanceof HTMLElement) {
+                document.activeElement.blur();
+              }
               element.querySelectorAll('input').forEach(i => i.blur());
+
+              // 2. Kunci posisi scroll ke atas agar gambar tidak terpotong (sangat penting untuk html2canvas)
+              const originalScrollY = window.scrollY;
+              window.scrollTo(0, 0);
+
+              // 3. Tangkap gambar dengan skala HD dan presisi posisi
               const canvas = await window.html2canvas(element, {
-                scale: 2, useCORS: true, 
-                backgroundColor: isDarkMode ? '#0f172a' : '#f8fafc', 
-                windowWidth: 1024 
+                scale: 3, // Resolusi tinggi (3x lipat lebih tajam dari sebelumnya)
+                useCORS: true, 
+                backgroundColor: isDarkMode ? '#0f172a' : '#f8fafc',
+                scrollX: 0,
+                scrollY: 0,
+                logging: false,
+                onclone: (clonedDoc) => {
+                  // Beri ruang lega sedikit di bawah tabel pada hasil akhir foto
+                  const clonedElement = clonedDoc.getElementById('export-content');
+                  if (clonedElement) {
+                    clonedElement.style.paddingBottom = '30px';
+                  }
+                }
               });
+
+              // 4. Kembalikan posisi layar ke tempat semula
+              window.scrollTo(0, originalScrollY);
+
+              // 5. Unduh sebagai PNG
               const link = document.createElement('a');
-              link.download = `IKT_${kodeToko || 'Blank'}_${selectedDate}.png`;
-              link.href = canvas.toDataURL('image/png');
+              link.download = `Monitor_IKT_${kodeToko || 'Blank'}_${selectedDate}.png`;
+              link.href = canvas.toDataURL('image/png', 1.0);
               link.click();
-              showNotif('✅ Gambar berhasil diunduh!');
+              
+              showNotif('✅ Gambar presisi berhasil diunduh!');
             } catch (err) {
+                console.error("Export Error:", err);
                 showNotif('❌ Gagal export Gambar');
             }
           };
